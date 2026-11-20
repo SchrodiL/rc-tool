@@ -70,30 +70,12 @@ namespace RcTool
         static extern bool SetProcessDPIAware();
     }
 
-    // 调试日志（exe 目录 + C:\gs-capture）
+    // 调试输出（仅崩溃日志落盘，常规运行不生成任何文件）
     static class Trace
     {
         public const string SharedDir = "C:\\gs-capture";
-        static readonly object lk = new object();
-        static string path1, path2;
-
-        public static void Init()
-        {
-            path1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rc_debug.log");
-            try { if (Directory.Exists(SharedDir)) path2 = Path.Combine(SharedDir, "rc_debug.log"); } catch { }
-            try { File.WriteAllText(path1, "", Encoding.UTF8); } catch { }
-            if (path2 != null) { try { File.WriteAllText(path2, "", Encoding.UTF8); } catch { } }
-        }
-
-        public static void W(string s)
-        {
-            string line = "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " + s + Environment.NewLine;
-            lock (lk)
-            {
-                try { File.AppendAllText(path1, line, Encoding.UTF8); } catch { }
-                if (path2 != null) { try { File.AppendAllText(path2, line, Encoding.UTF8); } catch { } }
-            }
-        }
+        public static void Init() { }
+        public static void W(string s) { }
     }
 
     // ---------------------------- 配色 ----------------------------
@@ -432,22 +414,9 @@ namespace RcTool
     class GameSirApp
     {
         public string Dir;
-        string CfgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rc_config.json");
-
-        static readonly JavaScriptSerializer Ser = new JavaScriptSerializer();
-
         public GameSirApp()
         {
-            try
-            {
-                if (File.Exists(CfgPath))
-                {
-                    Dictionary<string, object> cfg = Ser.DeserializeObject(File.ReadAllText(CfgPath, Encoding.UTF8)) as Dictionary<string, object>;
-                    if (cfg != null && cfg.ContainsKey("gamesir_dir")) Dir = Convert.ToString(cfg["gamesir_dir"]);
-                }
-            }
-            catch { }
-            if (!Valid(Dir)) Dir = null;
+            // 不落盘：每次启动自动探测（后台 Locate）
         }
 
         public static bool Valid(string d)
@@ -463,16 +432,7 @@ namespace RcTool
             return true;
         }
 
-        void SaveCfg()
-        {
-            try
-            {
-                Dictionary<string, object> cfg = new Dictionary<string, object>();
-                cfg["gamesir_dir"] = Dir;
-                File.WriteAllText(CfgPath, Ser.Serialize(cfg), Encoding.UTF8);
-            }
-            catch { }
-        }
+        void SaveCfg() { }
 
         public string ExePath { get { return Dir == null ? null : Path.Combine(Dir, "GameSir Connect.exe"); } }
         public string AsarPath { get { return Dir == null ? null : Path.Combine(Dir, "resources", "app.asar"); } }
@@ -1459,12 +1419,7 @@ namespace RcTool
         public MainForm()
         {
             for (int i = 0; i < 5; i++) prof[i] = new ProfInfo();
-            try
-            {
-                string lp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lang.txt");
-                if (File.Exists(lp)) L.En = File.ReadAllText(lp, Encoding.UTF8).Trim().ToLower() == "en";
-            }
-            catch { }
+            // 语言偏好不落盘（默认中文）
             Text = "RC-Tool";
             try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             BackColor = C.Bg;
@@ -1486,7 +1441,7 @@ namespace RcTool
                 KillLive();
             };
 
-            AppendLog("RC-Tool v3.50（直连版）已启动。");
+            AppendLog("RC-Tool v3.52（直连版）已启动。");
             try { Trace.W("启动环境: app=" + (app.Dir ?? "null") + " shared=" + Directory.Exists(Trace.SharedDir)); } catch { }
             AppendLog("直连模式：不依赖 GameSir Connect 读取配置；App 路径仅用于打补丁/启动。");
             app.PatchStatusChanged = delegate
@@ -1725,12 +1680,6 @@ namespace RcTool
         void ToggleLang()
         {
             L.En = !L.En;
-            try
-            {
-                File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lang.txt"),
-                    L.En ? "en" : "zh", Encoding.UTF8);
-            }
-            catch { }
             ApplyLanguage();
         }
 
