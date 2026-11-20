@@ -1,5 +1,7 @@
 # RC-Tool
 
+中文 | [English](README_EN.md)
+
 GameSir 天王星8K / G7 Pro 8K 摇杆 RC 滤波调节工具。
 *Stick RC-filter tuner for GameSir Uranus 8K (G7 Pro 8K), via direct USB HID.*
 
