@@ -44,7 +44,7 @@ GameSir Connect zeroes the RC values every time it opens. This tool removes that
 1. **Fully exit GameSir Connect** (including the tray icon);
 2. Click **Remove RC Force-Reset** and wait for the progress lines
    (read → scan → write, a few seconds);
-3. Start GameSir Connect again — it will no longer overwrite your RC values;
+3. Click **Restart GameSir Connect** in the tool (or start it manually) — it will no longer overwrite your RC values;
 4. Click **Restore Official App** to undo at any time (an automatic backup is made before
    the first patch).
 

@@ -841,6 +841,28 @@ namespace RcTool
             }
         }
 
+        public string Restart()
+        {
+            int n = GameSirProcessCount();
+            if (n > 0)
+            {
+                try
+                {
+                    foreach (Process p in Process.GetProcessesByName("GameSir Connect"))
+                    {
+                        try { p.Kill(); } catch { }
+                    }
+                    // 等进程完全退出（app.asar 解锁）
+                    for (int i = 0; i < 40 && GameSirProcessCount() > 0; i++) Thread.Sleep(250);
+                }
+                catch { }
+            }
+            if (ExePath == null || !File.Exists(ExePath))
+                throw new Exception("未找到 GameSir Connect.exe（请先选择安装路径）");
+            Process.Start(ExePath);
+            return n > 0 ? "restarted" : "started";
+        }
+
         public bool LaunchPlain()
         {
             if (ExePath == null || !File.Exists(ExePath))
@@ -1464,7 +1486,7 @@ namespace RcTool
                 KillLive();
             };
 
-            AppendLog("RC-Tool v3.49（直连版）已启动。");
+            AppendLog("RC-Tool v3.50（直连版）已启动。");
             try { Trace.W("启动环境: app=" + (app.Dir ?? "null") + " shared=" + Directory.Exists(Trace.SharedDir)); } catch { }
             AppendLog("直连模式：不依赖 GameSir Connect 读取配置；App 路径仅用于打补丁/启动。");
             app.PatchStatusChanged = delegate
@@ -1576,7 +1598,7 @@ namespace RcTool
 
             btnPatch = MakeButton(24, 84, 214, 34, "去除RC强制归零", false, delegate { ActPatch(); });
             btnUnpatch = MakeButton(250, 84, 214, 34, "恢复官方原版", false, delegate { ActUnpatch(); });
-            btnLaunch = MakeButton(476, 84, 214, 34, "启动 GameSir Connect", false, delegate { ActLaunch(); });
+            btnLaunch = MakeButton(476, 84, 214, 34, "重启 GameSir Connect", false, delegate { ActLaunch(); });
             btnPickDir = MakeButton(702, 84, 214, 34, "选择安装路径…", false, delegate { ActPickDir(); });
 
             for (int i = 0; i < 4; i++)
@@ -1717,7 +1739,7 @@ namespace RcTool
             Text = "RC-Tool";
             btnPatch.Text = L.T("去除RC强制归零", "Remove RC Force-Reset");
             btnUnpatch.Text = L.T("恢复官方原版", "Restore Official App");
-            btnLaunch.Text = L.T("启动 GameSir Connect", "Launch GameSir Connect");
+            btnLaunch.Text = L.T("重启 GameSir Connect", "Restart GameSir Connect");
             btnPickDir.Text = L.T("选择安装路径…", "Select Install Folder...");
             for (int i = 0; i < 2; i++)
             {
@@ -2224,8 +2246,13 @@ namespace RcTool
 
         void ActLaunch()
         {
-            RunBg(delegate { return app.LaunchPlain(); },
-                delegate (object r) { AppendLog("已启动 GameSir Connect"); }, false);
+            RunBg(delegate { return app.Restart(); },
+                delegate (object r)
+                {
+                    string s = (string)r;
+                    AppendLog(s == "restarted" ? "已重启 GameSir Connect" : "GameSir Connect 未在运行，已启动");
+                    ShowToast(s == "restarted" ? "已重启 GameSir Connect" : "已启动 GameSir Connect");
+                }, false);
         }
 
         void ActPickDir()
