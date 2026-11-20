@@ -1464,7 +1464,7 @@ namespace RcTool
                 KillLive();
             };
 
-            AppendLog("RC-Tool v3.48（直连版）已启动。");
+            AppendLog("RC-Tool v3.49（直连版）已启动。");
             try { Trace.W("启动环境: app=" + (app.Dir ?? "null") + " shared=" + Directory.Exists(Trace.SharedDir)); } catch { }
             AppendLog("直连模式：不依赖 GameSir Connect 读取配置；App 路径仅用于打补丁/启动。");
             app.PatchStatusChanged = delegate
@@ -1788,8 +1788,11 @@ namespace RcTool
             {
                 prof[snap.Tab] = snap.Info;
             }
+            bool justDisconnected = wasConnected && !connected;
             if (wasConnected != connected)
                 AppendLog(connected ? "手柄已连接（直连）" : "手柄未连接：" + (snap.Err ?? ""));
+            // 断联：档名/数值/固件显示归位默认
+            if (justDisconnected) ResetToDefault();
             // 连接/换档时自动读取
             if (connected && currentIdx >= 1 && (wasConnected != connected || curChanged))
             {
@@ -1801,6 +1804,24 @@ namespace RcTool
                 AutoReadAll();
             }
             PaintAll();
+        }
+
+        // 手柄断联：所有档位数据与数值归位默认
+        void ResetToDefault()
+        {
+            for (int i = 0; i < 5; i++) prof[i] = new ProfInfo();
+            currentIdx = -1;
+            fwText = "";
+            try
+            {
+                slL.SetValueSilent(0);
+                slL.DisplayValue = null;
+                slL.Invalidate();
+                slR.SetValueSilent(0);
+                slR.DisplayValue = null;
+                slR.Invalidate();
+            }
+            catch { }
         }
 
         void PaintAll()
