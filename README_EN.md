@@ -37,22 +37,49 @@ a ~120 KB single-file `RC-Tool.exe`, which is launched automatically on success.
 4. Patch: fully exit GameSir Connect (including the tray icon), click "Remove RC Force-Reset",
    then restart the app
 
-## HID protocol notes (verified on hardware)
+## Usage
 
-| Item | Details |
-|---|---|
-| Output report | ID `0x0F`, 64 bytes |
-| Input report | ID `0x10` for replies; `0x12` is the gamepad state stream (ignored) |
-| Enter config mode | `[15,1]` → `10-06` Ack |
-| Read profile chunk | `[15,4,profile,Hi,Lo,Len]` → `10-05-profile-Hi-Lo-Len-data` |
-| Write profile chunk | `[15,3,profile,Hi,Lo,Len,data]`, Len ≤ 58 |
-| Switch profile | `[15,7,profile]` |
-| Current profile | `[15,11]` → `10-0C-profile` |
-| Firmware version | `[15,9]` → `10-0A` (UTF-16LE) |
-| Profile layout | 1070 bytes; name at 0..31; RC value at byte 49 (left) / 50 (right), `byte = clamp(1..21, value+11)` |
+### Connecting
 
-The transport uses fully-timed-over-out Overlapped I/O plus a 500 ms heartbeat, so a misbehaving
-device can never freeze the UI.
+Plug the controller in via USB (wired mode or 2.4G mode both work). GameSir Connect does not
+need to be running. The tool scans every 3 seconds: plug in to connect, unplug to disconnect,
+re-plug to reconnect automatically.
+
+### Tuning RC
+
+1. Wait until the top indicator reads **Pad: G7P8K**;
+2. Click a tab to pick the profile you want to edit (clicking a tab also switches the
+   controller's active profile);
+3. Drag the slider: the left side is the jitter direction (−10), the right side is smoothing
+   (+10); the current value is shown right above the slider;
+4. Click **Apply to Left/Right Stick** — the value is written to the controller and verified
+   by reading it back. Success/failure is reported immediately;
+5. Try it in game and fine-tune as needed.
+
+Value range: `-10..-1` adds jitter; `0` = off; `1..10` = smoothing (higher = smoother).
+Left and right sticks are configured independently. Start with smoothing 2~3 and go up if
+needed. Note that the jitter direction is banned in some esports rulesets.
+
+### Patch (remove the forced RC reset)
+
+GameSir Connect zeroes the RC values every time it opens. This tool removes that logic:
+
+1. **Fully exit GameSir Connect** (including the tray icon);
+2. Click **Remove RC Force-Reset** and wait for the progress lines
+   (read → scan → write, a few seconds);
+3. Start GameSir Connect again — it will no longer overwrite your RC values;
+4. Click **Restore Official App** to undo at any time (an automatic backup is made before
+   the first patch).
+
+If the app folder is not found, click **Select Install Folder...** and point it to the
+GameSir Connect installation directory.
+
+### Misc
+
+- Language: click the small pill next to the model name to toggle Chinese / English;
+- Settings are stored inside the controller's profiles and survive power-off, so they carry
+  over to any PC;
+- To reset a profile, drag the slider back to 0 and apply.
 
 ## Disclaimer
 
