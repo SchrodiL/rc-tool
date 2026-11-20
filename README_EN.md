@@ -31,14 +31,6 @@ a ~120 KB single-file `RC-Tool.exe`, which is launched automatically on success.
 
 ## Usage
 
-1. Connect the controller via USB (fully exit GameSir Connect first is recommended)
-2. Run `RC-Tool.exe` and wait for "Pad: G7P8K" in the top-right corner
-3. Pick a tab, drag the slider, click "Apply to Left/Right Stick"
-4. Patch: fully exit GameSir Connect (including the tray icon), click "Remove RC Force-Reset",
-   then restart the app
-
-## Usage
-
 ### Connecting
 
 Plug the controller in via USB (wired mode or 2.4G mode both work). GameSir Connect does not

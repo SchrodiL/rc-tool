@@ -27,13 +27,6 @@ GameSir 天王星8K / G7 Pro 8K 摇杆 RC 滤波调节工具。
 双击 `build.cmd`。使用系统自带的 `csc.exe`（.NET Framework 4.x）编译，
 产物为约 120 KB 的单文件 `RC-Tool.exe`，编译成功后自动启动。
 
-## 使用
-
-1. USB 连接手柄（建议先完全退出 GameSir Connect）
-2. 运行 `RC-Tool.exe`，等待右上角显示"手柄: G7P8K"
-3. 选 Tab → 拖动滑块 → "应用到左/右摇杆"
-4. 补丁：完全退出 GameSir Connect（含托盘）→ "去除RC强制归零" → 重启 App 生效
-
 ## 使用说明
 
 ### 连接手柄
