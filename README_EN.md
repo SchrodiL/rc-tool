@@ -37,6 +37,20 @@ Plug the controller in via USB (wired mode or 2.4G mode both work). GameSir Conn
 need to be running. The tool scans every 3 seconds: plug in to connect, unplug to disconnect,
 re-plug to reconnect automatically.
 
+### Patch (remove the forced RC reset)
+
+GameSir Connect zeroes the RC values every time it opens. This tool removes that logic:
+
+1. **Fully exit GameSir Connect** (including the tray icon);
+2. Click **Remove RC Force-Reset** and wait for the progress lines
+   (read → scan → write, a few seconds);
+3. Start GameSir Connect again — it will no longer overwrite your RC values;
+4. Click **Restore Official App** to undo at any time (an automatic backup is made before
+   the first patch).
+
+If the app folder is not found, click **Select Install Folder...** and point it to the
+GameSir Connect installation directory.
+
 ### Tuning RC
 
 1. Wait until the top indicator reads **Pad: G7P8K**;
@@ -51,20 +65,6 @@ re-plug to reconnect automatically.
 Value range: `-10..-1` adds jitter; `0` = off; `1..10` = smoothing (higher = smoother).
 Left and right sticks are configured independently. Start with smoothing 2~3 and go up if
 needed. Note that the jitter direction is banned in some esports rulesets.
-
-### Patch (remove the forced RC reset)
-
-GameSir Connect zeroes the RC values every time it opens. This tool removes that logic:
-
-1. **Fully exit GameSir Connect** (including the tray icon);
-2. Click **Remove RC Force-Reset** and wait for the progress lines
-   (read → scan → write, a few seconds);
-3. Start GameSir Connect again — it will no longer overwrite your RC values;
-4. Click **Restore Official App** to undo at any time (an automatic backup is made before
-   the first patch).
-
-If the app folder is not found, click **Select Install Folder...** and point it to the
-GameSir Connect installation directory.
 
 ### Misc
 
