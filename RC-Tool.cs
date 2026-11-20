@@ -50,20 +50,7 @@ namespace RcTool
 
         static void LogCrash(Exception e)
         {
-            string text = "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " +
-                          (e != null ? e.ToString() : "unknown") + Environment.NewLine + Environment.NewLine;
-            try
-            {
-                File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rc_error.log"), text, Encoding.UTF8);
-            }
-            catch { }
-            try
-            {
-                if (Directory.Exists(Trace.SharedDir))
-                    File.AppendAllText(Path.Combine(Trace.SharedDir, "rc_error.log"), text, Encoding.UTF8);
-            }
-            catch { }
-            Trace.W("[异常] " + (e != null ? e.ToString() : "unknown"));
+            // 不落盘：异常仅静默吞掉
         }
 
         [DllImport("user32.dll")]
@@ -1441,7 +1428,7 @@ namespace RcTool
                 KillLive();
             };
 
-            AppendLog("RC-Tool v3.52（直连版）已启动。");
+            AppendLog("RC-Tool v3.53（直连版）已启动。");
             try { Trace.W("启动环境: app=" + (app.Dir ?? "null") + " shared=" + Directory.Exists(Trace.SharedDir)); } catch { }
             AppendLog("直连模式：不依赖 GameSir Connect 读取配置；App 路径仅用于打补丁/启动。");
             app.PatchStatusChanged = delegate
