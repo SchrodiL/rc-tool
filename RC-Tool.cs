@@ -238,6 +238,287 @@ namespace RcTool
         }
     }
 
+    // 自绘下拉框：圆角矩形、与按钮同风格；弹层为圆角深色列表，条目文字与闭合框对齐
+    class FwDropDown : Control
+    {
+        string[] items = new string[0];
+        int sel;
+        string displayOverride;
+        bool hover;
+        DropListForm pop;
+        int suppressUntil;
+        public event EventHandler ValueChanged;
+        const int TEXT_PAD = 14;
+        bool busy;
+        int progress;
+        string busyText = "";
+
+        public bool Busy { get { return busy; } }
+        public void SetBusy(bool b)
+        {
+            busy = b; progress = 0; busyText = "";
+            if (b && pop != null) CloseList();
+            Invalidate();
+        }
+        public void SetProgress(int pct, string txt)
+        {
+            progress = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+            busyText = (txt == null ? "" : txt);
+            Invalidate();
+        }
+
+        public FwDropDown()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Cursor = Cursors.Hand;
+        }
+
+        public int SelectedIndex { get { return sel; } }
+        public string SelectedText { get { return items.Length > 0 ? items[sel] : ""; } }
+
+        public void SetItems(string[] list, int index)
+        {
+            items = list == null ? new string[0] : list;
+            sel = index;
+            if (sel < 0) sel = 0;
+            if (sel >= items.Length) sel = items.Length > 0 ? items.Length - 1 : 0;
+            Invalidate();
+        }
+
+        public void SetDisplayText(string t)
+        {
+            displayOverride = t;
+            Invalidate();
+        }
+
+        void SetSel(int i)
+        {
+            if (i < 0 || i >= items.Length) return;
+            sel = i;
+            Invalidate();
+            if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (busy) return;
+            if (Environment.TickCount < suppressUntil) return;
+            if (pop != null) { CloseList(); return; }
+            OpenList();
+        }
+
+        void OpenList()
+        {
+            if (items.Length == 0) return;
+            pop = new DropListForm(items, sel, Font, Width);
+            pop.ItemClicked += delegate (int i) { CloseList(); SetSel(i); };
+            pop.FormClosed += delegate (object o, FormClosedEventArgs ce)
+            {
+                if (pop == o) pop = null;
+                Invalidate();
+                suppressUntil = Environment.TickCount + 250;
+            };
+            Point pt = PointToScreen(new Point(0, Height + 4));
+            pop.Location = pt;
+            pop.Show(this);
+            Invalidate();
+        }
+
+        public void CloseList()
+        {
+            DropListForm p = pop;
+            if (p != null) p.Close();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.Clear(Ui.Under(this));
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Color bg = !Enabled ? C.Card2 : (hover ? C.BtnHi : C.Btn);
+            Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (GraphicsPath p = Ui.RoundRect(r, 10))
+            {
+                using (SolidBrush b = new SolidBrush(bg)) g.FillPath(b, p);
+                if (busy)
+                {
+                    int w = (Width - 2) * progress / 100;
+                    if (w > 2)
+                    {
+                        Region old = g.Clip;
+                        g.SetClip(p, CombineMode.Intersect);
+                        using (SolidBrush fb = new SolidBrush(C.Accent2)) g.FillRectangle(fb, 1, 1, w, Height - 2);
+                        g.Clip = old;
+                    }
+                }
+                using (Pen pen = new Pen(Enabled && hover ? C.BorderHi : C.Border)) g.DrawPath(pen, p);
+            }
+            Color fg = Enabled ? C.Text : C.Dim;
+            Rectangle tr = new Rectangle(TEXT_PAD, 0, Width - TEXT_PAD - 30, Height);
+            if (busy)
+            {
+                TextRenderer.DrawText(g, progress + "%  " + busyText, Font, tr, Color.White,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+                return;
+            }
+            string shown = string.IsNullOrEmpty(displayOverride) ? SelectedText : displayOverride;
+            TextRenderer.DrawText(g, shown, Font, tr, fg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+            int cx = Width - 20, cy = Height / 2 + 1;
+            bool open = pop != null;
+            Point[] tri = open
+                ? new Point[] { new Point(cx - 5, cy + 2), new Point(cx + 5, cy + 2), new Point(cx, cy - 5) }
+                : new Point[] { new Point(cx - 5, cy - 4), new Point(cx + 5, cy - 4), new Point(cx, cy + 3) };
+            using (SolidBrush ab = new SolidBrush(fg)) g.FillPolygon(ab, tri);
+        }
+    }
+
+    // 圆角下拉弹层（无边框窗口 + 自绘列表）
+    class DropListForm : Form
+    {
+        public event Action<int> ItemClicked;
+        string[] items;
+        int sel;
+        Font font;
+        int rowH = 30;
+        const int TEXT_PAD = 14;
+        int hoverIdx = -1;
+
+        public DropListForm(string[] list, int selected, Font f, int width)
+        {
+            items = list; sel = selected; font = f;
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            BackColor = C.BorderHi;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
+            int h = items.Length * rowH + 6;
+            Size = new Size(width, h);
+            try { Ui.ApplyRoundRegion(this, 10); } catch { }
+            MouseMove += delegate (object o, MouseEventArgs me) { int i = (me.Y - 3) / rowH; if (i != hoverIdx) { hoverIdx = i; Invalidate(); } };
+            MouseLeave += delegate { hoverIdx = -1; Invalidate(); };
+            MouseClick += delegate (object o, MouseEventArgs me)
+            {
+                int i = (me.Y - 3) / rowH;
+                if (i >= 0 && i < items.Length && ItemClicked != null) ItemClicked(i);
+            };
+            Deactivate += delegate { Close(); };
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(C.BorderHi);
+            Rectangle inner = new Rectangle(1, 1, Width - 2, Height - 2);
+            using (GraphicsPath p = Ui.RoundRect(inner, 9))
+            {
+                using (SolidBrush b = new SolidBrush(C.Card)) g.FillPath(b, p);
+                using (Pen pen = new Pen(C.Border)) g.DrawPath(pen, p);
+            }
+            for (int i = 0; i < items.Length; i++)
+            {
+                Rectangle row = new Rectangle(2, 3 + i * rowH, Width - 4, rowH);
+                bool selected = i == sel;
+                bool hot = i == hoverIdx;
+                if (selected || hot)
+                {
+                    using (GraphicsPath p = Ui.RoundRect(new Rectangle(row.X + 1, row.Y + 2, row.Width - 2, row.Height - 4), 6))
+                    using (SolidBrush b = new SolidBrush(selected ? C.Accent2 : C.BtnHi)) g.FillPath(b, p);
+                }
+                TextRenderer.DrawText(g, items[i], font, new Rectangle(row.X + TEXT_PAD, row.Y, row.Width - TEXT_PAD - 8, row.Height),
+                    selected ? Color.White : C.Text,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+            }
+        }
+    }
+
+    // 刷写进度窗口（橙色进度条，左到右跑满）
+    class FlashProgressDialog : Form
+    {
+        public Label Msg;
+        public BarPanel Bar;
+
+        public FlashProgressDialog(string fwName)
+        {
+            Text = "刷写固件";
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false; MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(460, 140);
+            BackColor = C.Card;
+            ForeColor = C.Text;
+            Font f = null;
+            try { f = new Font("Microsoft YaHei UI", 9F); } catch { }
+            if (f != null) Font = f;
+            Label title = new Label();
+            title.Text = fwName;
+            title.Font = new Font(Font.FontFamily, 12F, FontStyle.Bold);
+            title.ForeColor = C.Text;
+            title.BackColor = Color.Transparent;
+            title.SetBounds(18, 12, 424, 26);
+            Controls.Add(title);
+            Msg = new Label();
+            Msg.Text = L.T("准备中…", "Preparing...");
+            Msg.ForeColor = C.Muted;
+            Msg.BackColor = Color.Transparent;
+            Msg.SetBounds(18, 40, 424, 34);
+            Controls.Add(Msg);
+            Bar = new BarPanel();
+            Bar.Font = Font;
+            Bar.SetBounds(18, 86, 424, 24);
+            Controls.Add(Bar);
+        }
+
+        public void UpdateProgress(int pct, string msg)
+        {
+            try { Bar.Value = pct; Msg.Text = msg; } catch { }
+        }
+    }
+
+    class BarPanel : Control
+    {
+        int val;
+        public BarPanel()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+        public int Value
+        {
+            get { return val; }
+            set { int v = value < 0 ? 0 : (value > 100 ? 100 : value); if (v != val) { val = v; Invalidate(); } }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
+            using (GraphicsPath p = Ui.RoundRect(r, Height / 2))
+            {
+                using (SolidBrush b = new SolidBrush(C.Card2)) g.FillPath(b, p);
+                using (Pen pen = new Pen(C.Border)) g.DrawPath(pen, p);
+            }
+            int fw = (Width - 4) * val / 100;
+            if (fw > 2)
+            {
+                Rectangle fr = new Rectangle(2, 2, fw, Height - 4);
+                using (GraphicsPath p = Ui.RoundRect(fr, (Height - 4) / 2))
+                {
+                    using (LinearGradientBrush b = new LinearGradientBrush(fr, C.Accent2, C.Accent, LinearGradientMode.Horizontal))
+                        g.FillPath(b, p);
+                }
+            }
+            TextRenderer.DrawText(g, val + "%", Font, r, Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+    }
+
     class Pill : Control
     {
         public bool WhiteText;
@@ -259,9 +540,10 @@ namespace RcTool
             Color fg = C.Muted, bg = C.Card, br = C.Border;
             if (state == "ok") { fg = C.Ok; bg = C.OkBg; br = C.OkBr; }
             if (state == "warn") { fg = C.Warn; bg = C.WarnBg; br = C.WarnBr; }
+            if (state == "accent") { fg = Color.White; bg = C.Accent2; br = C.Border; }
             if (WhiteText) fg = C.Text;
             Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (GraphicsPath p = Ui.RoundRect(r, Height / 2))
+            using (GraphicsPath p = Ui.RoundRect(r, state == "accent" ? 10 : Height / 2))
             {
                 using (SolidBrush b = new SolidBrush(bg)) g.FillPath(b, p);
                 using (Pen pen = new Pen(br)) g.DrawPath(pen, p);
@@ -1362,10 +1644,408 @@ namespace RcTool
     }
 
     // ---------------------------- 主窗体 ----------------------------
+    // ---------------------------- 固件刷写（官方 U 盘升级通道） ----------------------------
+    static class FlashEngine
+    {
+        const string FW_RES_210 = "fw_v210.ufw";
+        const string FW_RES_238 = "fw_v238.ufw";
+        const string DLL_RES = "jl_firmware_upgrade_x86.dll";
+
+        public static string ResNameFor(int idx)
+        {
+            return idx == 0 ? FW_RES_210 : FW_RES_238;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr LoadLibraryExW(string path, IntPtr hFile, uint flags);
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool SetDllDirectoryW(string path);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int FnLoadUfw(IntPtr data, int len);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int FnGetPidVid(IntPtr pid, int pidLen, IntPtr vid, int vidLen);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int FnQueryDevPidVid(byte drive, IntPtr pid, int pidLen, IntPtr vid, int vidLen);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int FnSetDual(int enable);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int FnUpgrade(byte drive, byte p2, byte p3, IntPtr cb);
+
+        static bool SameBytes(string path, byte[] data)
+        {
+            try
+            {
+                FileInfo fi = new FileInfo(path);
+                if (!fi.Exists || fi.Length != data.Length) return false;
+                byte[] cur = File.ReadAllBytes(path);
+                if (cur.Length != data.Length) return false;
+                for (int i = 0; i < data.Length; i++) if (cur[i] != data[i]) return false;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        static string EnsureUpgradeDll(string appDir, Action<string> log)
+        {
+            byte[] dll;
+            try { dll = ReadRes(DLL_RES); }
+            catch
+            {
+                if (appDir != null)
+                {
+                    string p = Path.Combine(Path.Combine(Path.Combine(appDir, "resources"), "dfu"), DLL_RES);
+                    if (File.Exists(p)) { log("使用 GameSir Connect 自带升级库"); return p; }
+                }
+                throw new Exception("内置升级库缺失且未找到 GameSir Connect 安装目录");
+            }
+            string dir = Path.Combine(Path.Combine(Path.GetTempPath(), "RCTool"), "dfu");
+            string path = Path.Combine(dir, DLL_RES);
+            try
+            {
+                Directory.CreateDirectory(dir);
+                if (!SameBytes(path, dll)) File.WriteAllBytes(path, dll);
+                return path;
+            }
+            catch (Exception e)
+            {
+                try
+                {
+                    string alt = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "dfu");
+                    Directory.CreateDirectory(alt);
+                    string ap = Path.Combine(alt, DLL_RES);
+                    if (!SameBytes(ap, dll)) File.WriteAllBytes(ap, dll);
+                    log("临时目录不可写（" + e.Message + "），改用程序目录 dfu\\");
+                    return ap;
+                }
+                catch { throw new Exception("释放升级库失败：" + e.Message); }
+            }
+        }
+
+        static byte[] ReadRes(string name)
+        {
+            Stream s = typeof(FlashEngine).Assembly.GetManifestResourceStream(name);
+            if (s == null) throw new Exception("内置固件缺失：" + name + "（构建时需带 /resource 参数）");
+            using (s)
+            {
+                MemoryStream ms = new MemoryStream();
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = s.Read(buf, 0, buf.Length)) > 0) ms.Write(buf, 0, n);
+                return ms.ToArray();
+            }
+        }
+
+        static List<char> RemovableDrives()
+        {
+            List<char> list = new List<char>();
+            try
+            {
+                foreach (DriveInfo d in DriveInfo.GetDrives())
+                {
+                    try { if (d.DriveType == DriveType.Removable) list.Add(d.Name[0]); }
+                    catch { }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        static string ReadStr(IntPtr p, int len)
+        {
+            string s = Marshal.PtrToStringAnsi(p, len);
+            return s == null ? "" : s.TrimEnd(new char[] { '\0' }).Trim();
+        }
+
+        public static string ErrorText(int code)
+        {
+            switch (code)
+            {
+                case 0: return "成功";
+                case -1: return "未定义的失败";
+                case -2: return "SDK 不匹配";
+                case -3: return "KEY 不匹配";
+                case -4: return "固件不匹配";
+                case -5: return "打开设备失败";
+                case -6: return "无效的固件";
+                case -7: return "内存不足";
+                case -8: return "参数无效";
+                case -9: return "无法获取设备信息";
+                case -10: return "写数据失败";
+                case -11: return "读数据失败";
+                case -14: return "擦除失败";
+                case -15: return "校验失败(CRC)";
+                case -16: return "数据校验失败";
+                case -17: return "无法结束升级模式";
+                case -18: return "没有固件数据";
+                case -20: return "推 LOADER 失败";
+                case -21: return "通信初始化失败";
+                case -22: return "超出设备 FLASH 容量";
+                case -23: return "不是要升级的设备(PID 不匹配)";
+                case -24: return "不支持的设备";
+                case -25: return "固件与芯片不匹配";
+                case -27: return "UFW 与样机固件不匹配";
+                default: return "未知错误";
+            }
+        }
+
+        static IntPtr NeedProc(IntPtr mod, string name)
+        {
+            IntPtr p = GetProcAddress(mod, name);
+            if (p == IntPtr.Zero) throw new Exception("升级库缺少导出：" + name);
+            return p;
+        }
+
+        static string HexRet(int code)
+        {
+            return code.ToString() + "（" + ErrorText(code) + "）";
+        }
+
+        static void P(Action<int, string> prog, int pct, string msg)
+        {
+            if (prog == null) return;
+            try { prog(pct, msg); } catch { }
+        }
+
+        public static string Flash(int fwIdx, HidDirect hid, string appDir, Action<string> log, Action<int, string> prog, string customPath)
+        {
+            string res;
+            byte[] ufw;
+            if (!string.IsNullOrEmpty(customPath))
+            {
+                res = Path.GetFileName(customPath);
+                ufw = File.ReadAllBytes(customPath);
+                log("载入自定义固件 " + res + "（" + (ufw.Length / 1024) + " KB）");
+            }
+            else
+            {
+                res = ResNameFor(fwIdx);
+                ufw = ReadRes(res);
+                log("已载入内置固件 " + res + "（" + (ufw.Length / 1024) + " KB）");
+            }
+            P(prog, 3, L.T("载入固件…", "Loading firmware..."));
+
+            string dllPath = EnsureUpgradeDll(appDir, log);
+            log("升级库: " + dllPath);
+            string dfuDir = Path.GetDirectoryName(dllPath);
+            SetDllDirectoryW(dfuDir);
+            IntPtr mod = LoadLibraryExW(dllPath, IntPtr.Zero, 0x8);
+            if (mod == IntPtr.Zero) throw new Exception("加载升级库失败（Win32=" + Marshal.GetLastWin32Error() + "）");
+            FnLoadUfw fnLoad = (FnLoadUfw)Marshal.GetDelegateForFunctionPointer(NeedProc(mod, "JL_loadUfwData"), typeof(FnLoadUfw));
+            FnGetPidVid fnGetPid = (FnGetPidVid)Marshal.GetDelegateForFunctionPointer(NeedProc(mod, "JL_getUfwPidVid"), typeof(FnGetPidVid));
+            FnQueryDevPidVid fnQuery = (FnQueryDevPidVid)Marshal.GetDelegateForFunctionPointer(NeedProc(mod, "JL_queryDevicePidVid"), typeof(FnQueryDevPidVid));
+            FnSetDual fnDual = (FnSetDual)Marshal.GetDelegateForFunctionPointer(NeedProc(mod, "JL_setDualBackupBurning"), typeof(FnSetDual));
+            FnUpgrade fnUpgrade = (FnUpgrade)Marshal.GetDelegateForFunctionPointer(NeedProc(mod, "JL_upgradeDevice"), typeof(FnUpgrade));
+            P(prog, 8, L.T("升级库就绪…", "Upgrade library ready..."));
+
+            // 1) 载入固件并取 PID
+            IntPtr ufwPtr = Marshal.AllocHGlobal(ufw.Length);
+            try
+            {
+                Marshal.Copy(ufw, 0, ufwPtr, ufw.Length);
+                int r = fnLoad(ufwPtr, ufw.Length);
+                log("JL_loadUfwData: " + r);
+                if (r != 0) throw new Exception("固件载入失败 ret=" + HexRet(r));
+            }
+            finally { Marshal.FreeHGlobal(ufwPtr); }
+            string ufwPid;
+            IntPtr pidB = Marshal.AllocHGlobal(16);
+            IntPtr vidB = Marshal.AllocHGlobal(4);
+            try
+            {
+                int r = fnGetPid(pidB, 16, vidB, 4);
+                if (r != 0) throw new Exception("读取固件 PID 失败 ret=" + HexRet(r));
+                ufwPid = ReadStr(pidB, 16);
+            }
+            finally { Marshal.FreeHGlobal(pidB); Marshal.FreeHGlobal(vidB); }
+            log("固件 PID：" + ufwPid);
+            P(prog, 14, L.T("固件已载入：", "Firmware loaded: ") + ufwPid);
+
+            // 2) 枚举 HID 并让手柄进入升级模式
+            List<HidDirect.Device> devs = null;
+            try { devs = hid.EnumDevices(); } catch (Exception e) { log("枚举 HID 失败: " + e.Message); }
+            if (devs != null)
+            {
+                log("HID 设备数: " + devs.Count);
+                foreach (HidDirect.Device d in devs)
+                    log("  HID pid=" + d.Pid.ToString("X4") + " usagePage=" + d.UsagePage.ToString("X4")
+                        + " usage=" + d.Usage + " if=" + d.InLen + "/" + d.OutLen + " " + d.Product);
+            }
+            int sent = 0;
+            if (devs != null)
+            {
+                HidDirect.Device cfg = hid.PickConfig(devs);
+                if (cfg != null)
+                {
+                    try
+                    {
+                        using (HidDirect.Session sess = new HidDirect.Session(cfg))
+                        {
+                            bool ok1 = sess.Send(new byte[] { 0x0F, 0x01 });
+                            log("发送 [15,1] 进入配置: " + ok1);
+                            Thread.Sleep(80);
+                            bool okq = sess.Send(new byte[] { 0x0F, 0x17, 0x55, 0x88 });
+                            log("发送 [15,23,85,136] 快速升级(U盘模式): " + okq);
+                            if (okq) sent++;
+                            Thread.Sleep(120);
+                            bool ok2 = sess.Send(new byte[] { 0x0F, 0xFC });
+                            log("发送 [15,252] HID-DFU入口: " + ok2);
+                            if (ok2) sent++;
+                            Thread.Sleep(400);
+                        }
+                    }
+                    catch (Exception e) { log("配置接口操作失败: " + e.Message); }
+                }
+                // 兜底：0xFF7A vendor 接口的快速升级命令 [0,242,0,4,246]
+                foreach (HidDirect.Device d in devs)
+                {
+                    if (d.UsagePage == 0xFF7A && d.Usage == 1)
+                    {
+                        try
+                        {
+                            using (HidDirect.Session sess = new HidDirect.Session(d))
+                            {
+                                byte[] cmd = new byte[] { 0x00, 0xF2, 0x00, 0x04, 0xF6 };
+                                bool ok3 = sess.Send(cmd);
+                                log("发送 [0,242,0,4,246] (0xFF7A) 快速升级: " + ok3);
+                                if (ok3) sent++;
+                                Thread.Sleep(300);
+                            }
+                        }
+                        catch (Exception e) { log("0xFF7A 接口操作失败: " + e.Message); }
+                        break;
+                    }
+                }
+            }
+            if (sent == 0) log("警告：升级命令未能发送（接口被占用或未连接有线模式），继续等待升级 U 盘…");
+            P(prog, 22, L.T("已发送升级命令，等待手柄进入 U 盘模式…", "Upgrade command sent, waiting for U-disk mode..."));
+
+            // 3) 轮询 U 盘设备
+            log("等待手柄进入 U 盘升级模式（最长 60 秒）…");
+            byte drive = 0;
+            string devPid = "";
+            DateTime t0 = DateTime.Now;
+            DateTime resendAt = t0.AddSeconds(5);
+            DateTime progAt = t0;
+            bool resent = false;
+            while ((DateTime.Now - t0).TotalSeconds < 60 && drive == 0)
+            {
+                if (!resent && DateTime.Now >= resendAt && devs != null)
+                {
+                    resent = true;
+                    HidDirect.Device cfg2 = null;
+                    try { cfg2 = hid.PickConfig(hid.EnumDevices()); } catch { }
+                    if (cfg2 != null)
+                    {
+                        try
+                        {
+                            using (HidDirect.Session sess = new HidDirect.Session(cfg2))
+                            {
+                                bool okq = sess.Send(new byte[] { 0x0F, 0x17, 0x55, 0x88 });
+                                log("重发 [15,23,85,136]: " + okq);
+                                Thread.Sleep(100);
+                                bool ok = sess.Send(new byte[] { 0x0F, 0xFC });
+                                log("重发 [15,252]: " + ok);
+                            }
+                        }
+                        catch (Exception e) { log("重发失败: " + e.Message); }
+                    }
+                    else log("重发跳过：配置接口已不在（可能已切换升级模式）");
+                }
+                foreach (char c in AllDriveLetters())
+                {
+                    IntPtr pid = Marshal.AllocHGlobal(16);
+                    IntPtr vid = Marshal.AllocHGlobal(4);
+                    try
+                    {
+                        for (int i = 0; i < 16; i++) Marshal.WriteByte(pid, i, 0);
+                        for (int i = 0; i < 4; i++) Marshal.WriteByte(vid, i, 0);
+                        int qr = fnQuery((byte)c, pid, 16, vid, 4);
+                        if (qr == 0)
+                        {
+                            string p = ReadStr(pid, 16);
+                            if (p == ufwPid || ufwPid.Length == 0) { drive = (byte)c; devPid = p; break; }
+                            log("盘 " + c + ": 是其它设备(" + p + ")，跳过");
+                        }
+                        else if (qr != -24 && qr != -25)   // 忽略"不是目标"类噪声
+                            log("盘 " + c + ": query ret=" + HexRet(qr));
+                    }
+                    catch { }
+                    finally { Marshal.FreeHGlobal(pid); Marshal.FreeHGlobal(vid); }
+                }
+                if (DateTime.Now >= progAt)
+                {
+                    progAt = DateTime.Now.AddSeconds(1);
+                    double sec = (DateTime.Now - t0).TotalSeconds;
+                    P(prog, 22 + (int)(Math.Min(sec, 60) / 60.0 * 26), L.T("等待手柄进入 U 盘升级模式…（", "Waiting for U-disk upgrade mode... (") + (int)sec + L.T(" 秒）", "s)"));
+                }
+                if (drive == 0) Thread.Sleep(250);
+            }
+            if (drive == 0) throw new Exception("60 秒内未检测到升级 U 盘。请确认：1) 用手柄原装数据线直连电脑（不是 2.4G 接收器）；2) 关闭 GameSir Connect 后重试；3) 重新插拔手柄。若仍失败，请把 rc_flash.log 发给开发者。");
+            log("升级设备就绪：" + ((char)drive) + ":（" + devPid + "）");
+            P(prog, 52, L.T("升级设备就绪：", "Upgrade device ready: ") + ((char)drive) + ":");
+
+            // 4) 双 bank 烧写
+            if (devPid == "GS_G7_Pro_CE_DV" || devPid == "GS_XREAL_DV")
+            {
+                int rd = fnDual(1);
+                log("JL_setDualBackupBurning(1): " + rd);
+            }
+
+            // 5) 刷写（阻塞；期间动画推进进度条 60→95%）
+            log("开始刷写，约 30–90 秒，请勿断电…");
+            DateTime t1 = DateTime.Now;
+            P(prog, 60, L.T("刷写中，请勿断电…", "Flashing, do not power off..."));
+            int[] animStop = new int[1];
+            Thread anim = null;
+            if (prog != null)
+            {
+                anim = new Thread(delegate ()
+                {
+                    int p = 60;
+                    while (Thread.VolatileRead(ref animStop[0]) == 0 && p < 95)
+                    {
+                        Thread.Sleep(700);
+                        if (Thread.VolatileRead(ref animStop[0]) != 0) break;
+                        p++;
+                        P(prog, p, L.T("刷写中，请勿断电…（约 ", "Flashing, do not power off... (") + p + "%)");
+                    }
+                });
+                anim.IsBackground = true;
+                anim.Start();
+            }
+            int up;
+            try { up = fnUpgrade(drive, 0, 1, IntPtr.Zero); }
+            finally { animStop[0] = 1; }
+            log("JL_upgradeDevice ret=" + up);
+            if (up != 0) throw new Exception("刷写失败 ret=" + HexRet(up));
+            P(prog, 100, L.T("刷写完成", "Done"));
+            int secs = (int)(DateTime.Now - t1).TotalSeconds;
+            return "刷写完成（" + secs + " 秒）。手柄将自动重启，重新连接即可。";
+        }
+
+        static List<char> AllDriveLetters()
+        {
+            List<char> list = new List<char>();
+            try
+            {
+                foreach (DriveInfo d in DriveInfo.GetDrives())
+                {
+                    try { list.Add(d.Name[0]); }
+                    catch { }
+                }
+            }
+            catch { }
+            return list;
+        }
+    }
+
     class MainForm : Form
     {
         const int W = 940;
-        const int H = 466;
+        const int H = 510;
 
         class ProfInfo
         {
@@ -1392,6 +2072,12 @@ namespace RcTool
 
         Pill pDev, pFw, pPatch, pApp, langPill;
         RoundButton btnPatch, btnUnpatch, btnLaunch, btnPickDir;
+        RoundButton btnFlash;
+        FwDropDown ddFw;
+        Pill lbFw;
+        int flashBusy;
+        string customFwPath;           // 下拉框"选择固件文件…"选中的自定义固件路径
+        int fwSel = 1;                 // 0=V2.10  1=V2.38  2=自定义文件
         TabButton[] tabs = new TabButton[4];
         SliderCtrl slL, slR;
 
@@ -1464,6 +2150,19 @@ namespace RcTool
             worker = new Thread(WorkerLoop);
             worker.IsBackground = true;
             worker.Start();
+        }
+
+        // 固件版本 -> 是否带可用 RC：0938=本工具刷入的 RC 定制版；≤2.10（含更早版本）都带原生 RC；2.19/2.38 等已移除
+        static bool FwHasRC(string v)
+        {
+            v = Ui.TrimNull(v);
+            if (v == "0938") return true;
+            int num;
+            if (v.Length > 0 && v.Length <= 4
+                && int.TryParse(v, System.Globalization.NumberStyles.HexNumber,
+                                System.Globalization.CultureInfo.InvariantCulture, out num))
+                return num <= 0x0210;
+            return false;
         }
 
         static FontFamily cnFamily, enFamily;
@@ -1543,13 +2242,27 @@ namespace RcTool
             btnLaunch = MakeButton(476, 84, 214, 34, "重启 GameSir Connect", false, delegate { ActLaunch(); });
             btnPickDir = MakeButton(702, 84, 214, 34, "选择安装路径…", false, delegate { ActPickDir(); });
 
+            // ---- 固件刷写行（内置 V2.10 / V2.38 / 选择固件文件…）----
+            lbFw = new Pill();
+            lbFw.Font = NewFont(9.5F, FontStyle.Regular);
+            lbFw.SetBounds(24, 135, 214, 34);
+            lbFw.SetState("固件刷写", "accent");
+            Controls.Add(lbFw);
+            ddFw = new FwDropDown();
+            ddFw.Font = NewFont(9F, FontStyle.Regular);
+            ddFw.SetBounds(250, 135, 440, 34);      // 与中间两列按钮对齐
+            ddFw.SetItems(FwItems(), fwSel);
+            ddFw.ValueChanged += delegate { OnFwItemChanged(); };
+            Controls.Add(ddFw);
+            btnFlash = MakeButton(702, 135, 214, 34, "刷写固件…", true, delegate { ActFlash(); });
+
             for (int i = 0; i < 4; i++)
             {
                 int k = i;
                 TabButton tb = new TabButton();
                 tb.Font = NewFont(9F, FontStyle.Regular);
                 tb.Text = "配置档 " + (i + 1);
-                tb.SetBounds(24 + i * 226, 142, 214, 38);
+                tb.SetBounds(24 + i * 226, 186, 214, 38);
                 tb.Click += delegate { SetTab(k + 1); };
                 tabs[i] = tb;
                 Controls.Add(tb);
@@ -1561,7 +2274,7 @@ namespace RcTool
                 string side = i == 0 ? "L" : "R";
                 int x = 24 + i * (cw + 24);
                 CardPanel card = new CardPanel();
-                card.SetBounds(x, 204, cw, 238);
+                card.SetBounds(x, 248, cw, 238);
                 card.BackColor = C.Card;
                 Controls.Add(card);
 
@@ -1677,6 +2390,13 @@ namespace RcTool
             btnUnpatch.Text = L.T("恢复官方原版", "Restore Official App");
             btnLaunch.Text = L.T("重启 GameSir Connect", "Restart GameSir Connect");
             btnPickDir.Text = L.T("选择安装路径…", "Select Install Folder...");
+            if (btnFlash != null) btnFlash.Text = L.T("刷写固件…", "Flash Firmware...");
+            if (lbFw != null) lbFw.SetState(L.T("固件刷写", "Firmware"), "accent");
+            if (ddFw != null)
+            {
+                int sel = ddFw.SelectedIndex;
+                ddFw.SetItems(FwItems(), sel);
+            }
             for (int i = 0; i < 2; i++)
             {
                 if (cardTitles[i] != null)
@@ -1739,7 +2459,13 @@ namespace RcTool
         {
             bool wasConnected = connected;
             connected = snap.Connected;
-            if (snap.Fw != null) fwText = snap.Fw;
+            if (snap.Fw != null)
+            {
+                if (snap.Fw != fwText)
+                    AppendLog(L.T("固件版本: ", "Firmware: ") + snap.Fw
+                        + (FwHasRC(snap.Fw) ? L.T("（RC 有效）", " (RC active)") : L.T("（RC 无效）", " (RC unavailable)")));
+                fwText = snap.Fw;
+            }
             bool curChanged = snap.Current >= 0 && snap.Current != currentIdx;
             if (snap.Current >= 0) currentIdx = snap.Current;
             if (snap.Info != null)
@@ -1789,7 +2515,8 @@ namespace RcTool
                     ? (L.T("手柄: ", "Pad: ") + "G7P8K")
                     : L.T("手柄: 未连接", "Pad: Not connected"),
                 connected ? "ok" : "warn");
-            pFw.SetState(L.T("固件: ", "FW: ") + (fwText.Length > 0 ? fwText : "-"), fwText.Length > 0 ? "ok" : "");
+            pFw.SetState(L.T("固件: ", "FW: ") + (fwText.Length > 0 ? fwText : "-"),
+                fwText.Length > 0 ? (FwHasRC(fwText) ? "ok" : "warn") : "");
             PaintTabs();
             PaintValues();
         }
@@ -2113,6 +2840,128 @@ namespace RcTool
             bool ok = enabled && app.Dir != null;
             btnPatch.Enabled = ok;
             btnUnpatch.Enabled = ok;
+        }
+
+        // ---------- 固件刷写 ----------
+        string[] FwItems()
+        {
+            return new string[] { "V2.10", "V2.38", L.T("选择固件文件…", "Select firmware file...") };
+        }
+
+        // 下拉框选择变化：选"选择固件文件…"立即弹文件选择框；选中后把文件名显示在选择栏里
+        void OnFwItemChanged()
+        {
+            int idx = ddFw.SelectedIndex;
+            if (idx != 2)
+            {
+                fwSel = idx;
+                customFwPath = null;
+                ddFw.SetDisplayText(null);
+                return;
+            }
+            using (System.Windows.Forms.OpenFileDialog ofd = new System.Windows.Forms.OpenFileDialog())
+            {
+                ofd.Title = L.T("选择固件包 (.ufw)", "Select firmware (.ufw)");
+                ofd.Filter = "UFW firmware (*.ufw)|*.ufw|All files (*.*)|*.*";
+                try { if (!string.IsNullOrEmpty(customFwPath)) ofd.InitialDirectory = Path.GetDirectoryName(customFwPath); } catch { }
+                if (ofd.ShowDialog(this) == DialogResult.OK)
+                {
+                    customFwPath = ofd.FileName;
+                    fwSel = 2;
+                    ddFw.SetDisplayText(Path.GetFileName(customFwPath));
+                    AppendLog("已选择固件文件：" + customFwPath);
+                }
+                else
+                {
+                    // 取消：选择回退到之前生效的项，显示保持原样
+                    ddFw.SetItems(FwItems(), fwSel);
+                    ddFw.SetDisplayText(string.IsNullOrEmpty(customFwPath) ? null : Path.GetFileName(customFwPath));
+                }
+            }
+        }
+
+        void SetFlashButtons(bool enabled)
+        {
+            if (btnFlash != null) btnFlash.Enabled = enabled;
+            if (ddFw != null) ddFw.Enabled = enabled;
+        }
+
+        void ActFlash()
+        {
+            int idx = fwSel;
+            if (idx < 0) idx = 1;
+            string customPath = null;
+            string name;
+            if (idx == 2)
+            {
+                if (string.IsNullOrEmpty(customFwPath))
+                {
+                    ShowToast(L.T("请先选择固件文件", "Please select a firmware file first"));
+                    return;
+                }
+                customPath = customFwPath;
+                name = L.T("自定义：", "Custom: ") + Path.GetFileName(customPath);
+            }
+            else name = idx == 0 ? "V2.10" : "V2.38";
+            if (MessageBox.Show(this,
+                L.T("即将刷写：", "Flashing: ") + name + L.T(
+                    "\r\n\r\n· 刷写期间请勿拔线/断电（约 30–90 秒）\r\n· 完成后手柄会自动重启\r\n· 失败可重复刷写；内置官方包可随时恢复\r\n\r\n确定开始？",
+                    "\r\n\r\n- Do not unplug or power off during flashing (~30-90s)\r\n- The controller restarts automatically when done\r\n- If it fails, retry; built-in official firmware restores anytime\r\n\r\nStart?"),
+                L.T("刷写固件", "Flash Firmware"), MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            if (Interlocked.CompareExchange(ref flashBusy, 1, 0) != 0) { ShowToast(L.T("刷写进行中…", "Flashing in progress...")); return; }
+            SetFlashButtons(false);
+            int n = GameSirApp.GameSirProcessCount();
+            if (n > 0) AppendLog("提示：检测到 GameSir Connect 正在运行（" + n + " 个进程），刷写前建议完全退出（含托盘）。");
+            AppendLog("开始刷写：" + name);
+            string logPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "rc_flash.log");
+            try { File.WriteAllText(logPath, "RC-Tool flash log " + DateTime.Now + "\r\n"); } catch { }
+            Action<string> log = delegate (string s)
+            {
+                try { File.AppendAllText(logPath, s + "\r\n"); } catch { }
+                try { BeginInvoke(new Action(delegate { AppendLog("  " + s); })); } catch { }
+            };
+            ddFw.Enabled = true;
+            ddFw.SetBusy(true);
+            ddFw.SetProgress(0, L.T("准备中…", "Preparing..."));
+            Action<int, string> prog = delegate (int pct, string msg)
+            {
+                try { BeginInvoke(new Action(delegate { ddFw.SetProgress(pct, msg); })); } catch { }
+            };
+            RunBg(delegate
+            {
+                try { return "OK:" + FlashEngine.Flash(idx, hid, app.Dir, log, prog, customPath); }
+                catch (Exception e) { return "ERR:" + e.Message; }
+            },
+            delegate (object r)
+            {
+                string s = (string)r;
+                try { ddFw.SetBusy(false); } catch { }
+                Interlocked.Exchange(ref flashBusy, 0);
+                SetFlashButtons(true);
+                if (s.StartsWith("ERR:"))
+                {
+                    AppendLog("[刷写失败] " + s.Substring(4));
+                    ShowToast(L.T("刷写失败: ", "Flash failed: ") + s.Substring(4));
+                    try
+                    {
+                        MessageBox.Show(this, L.T("刷写失败：\r\n", "Flash failed:\r\n") + s.Substring(4)
+                            + L.T("\r\n\r\n详细日志已写入：\r\n", "\r\n\r\nDetailed log written to:\r\n") + logPath,
+                            L.T("刷写失败", "Flash Failed"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    AppendLog(s.Substring(3));
+                    ShowToast(L.T("刷写完成", "Flash complete"));
+                    try
+                    {
+                        MessageBox.Show(this, L.T("刷写完成！\r\n手柄将自动重启，重新连接即可。", "Flash complete!\r\nThe controller restarts automatically; reconnect to continue."),
+                            L.T("刷写完成", "Flash Complete"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch { }
+                }
+            }, true);
         }
 
         void ActPatch()

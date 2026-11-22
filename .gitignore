@@ -3,4 +3,7 @@ rc_config.json
 lang.txt
 rc_debug.log
 rc_error.log
+rc_flash.log
 upload.cmd
+*.ufw
+jl_firmware_upgrade_x86.dll
